@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>กล้องสแกนสด QR Code - UPS System</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Google Fonts: Plus Jakarta Sans & Prompt -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Prompt:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- SweetAlert2 -->
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+  <!-- HTML5 QR Code Scanner Library (Top-Level Native Camera) -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+  <style>
+    body {
+      font-family: 'Prompt', 'Plus Jakarta Sans', sans-serif;
+      background-color: #020617;
+      color: #ffffff;
+      overflow: hidden;
+      touch-action: none;
+    }
+    #interactive-video {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+    }
+    #qrReader {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      border: none !important;
+    }
+    #qrReader video {
+      width: 100vw !important;
+      height: 100vh !important;
+      object-fit: cover !important;
+    }
+    #qrReader img, #qrReader__status_span {
+      display: none !important;
+    }
+    .scanner-laser {
+      position: absolute;
+      left: 10%;
+      right: 10%;
+      height: 2px;
+      background: linear-gradient(90deg, rgba(239,68,68,0) 0%, rgba(239,68,68,1) 50%, rgba(239,68,68,0) 100%);
+      box-shadow: 0 0 12px 2px rgba(239,68,68,0.8);
+      animation: scanMove 2.2s ease-in-out infinite alternate;
+    }
+    @keyframes scanMove {
+      0% { top: 12%; opacity: 0.8; }
+      100% { top: 88%; opacity: 0.8; }
+    }
+  </style>
+</head>
+<body class="relative w-screen h-screen flex flex-col justify-between select-none">
+
+  <!-- Fullscreen Camera Stream Container -->
+  <div id="qrReader" class="z-0"></div>
+
+  <!-- Dark Vignette Overlay with Center Transparent Reticle -->
+  <div class="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center">
+    <!-- Scanner Box -->
+    <div class="relative w-64 h-64 sm:w-72 sm:h-72 rounded-3xl border-2 border-white/20 shadow-[0_0_0_9999px_rgba(2,6,23,0.65)] overflow-hidden">
+      <!-- Target Corners -->
+      <div class="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-indigo-500 rounded-tl-2xl"></div>
+      <div class="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-indigo-500 rounded-tr-2xl"></div>
+      <div class="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-indigo-500 rounded-bl-2xl"></div>
+      <div class="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-indigo-500 rounded-br-2xl"></div>
+
+      <!-- Animated Red Laser -->
+      <div class="scanner-laser"></div>
+    </div>
+  </div>
+
+  <!-- Top Navigation Bar -->
+  <header class="relative z-20 flex items-center justify-between p-4 bg-gradient-to-b from-slate-950/80 to-transparent">
+    <button type="button" onclick="cancelAndReturn()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-md text-white text-xs font-semibold transition">
+      <i data-lucide="arrow-left" class="w-4 h-4"></i>
+      <span>กลับหน้าหลัก</span>
+    </button>
+    <div class="flex items-center gap-2">
+      <button type="button" id="btnTorch" onclick="toggleTorch()" class="p-2.5 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-md text-white transition hidden" title="เปิด/ปิดไฟฉาย">
+        <i data-lucide="zap" class="w-4 h-4"></i>
+      </button>
+      <button type="button" onclick="switchCamera()" class="p-2.5 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-md text-white transition" title="สลับกล้อง">
+        <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- Bottom Guidance Area -->
+  <footer class="relative z-20 p-6 flex flex-col items-center text-center bg-gradient-to-t from-slate-950/90 via-slate-950/60 to-transparent">
+    <div class="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/10 backdrop-blur-md border border-white/10 shadow-lg mb-2">
+      <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+      <span id="scanStatus" class="text-xs font-semibold text-white">เล็งกล้องไปที่ QR Code ของ UPS</span>
+    </div>
+    <p class="text-[11px] text-slate-400 max-w-xs leading-relaxed">
+      ระบบกล้องสดไม่มี iframe บล็อก อ่าน QR ทันทีและส่งผลกลับระบบ UPS
+    </p>
+  </footer>
+
+  <script>
+    let html5QrScanner = null;
+    let currentFacingMode = "environment";
+    let isTorchOn = false;
+    let hasDecoded = false;
+
+    // Retrieve returnUrl from query parameter
+    const urlParams = new URLSearchParams(window.location.search);
+    const returnUrl = urlParams.get('returnUrl') || '';
+
+    window.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+      startCamera();
+    });
+
+    function playBeepSound() {
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.16);
+      } catch (_) {}
+    }
+
+    function startCamera() {
+      if (typeof Html5Qrcode === 'undefined') {
+        setTimeout(startCamera, 200);
+        return;
+      }
+
+      const statusEl = document.getElementById('scanStatus');
+      statusEl.textContent = 'กำลังเริ่มการทำงานของกล้อง...';
+
+      if (html5QrScanner) {
+        try { html5QrScanner.stop().catch(() => {}); } catch (_) {}
+      }
+
+      html5QrScanner = new Html5Qrcode("qrReader");
+
+      const config = {
+        fps: 20,
+        qrbox: function(viewfinderWidth, viewfinderHeight) {
+          const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+          const qrboxSize = Math.floor(minEdge * 0.7);
+          return { width: qrboxSize, height: qrboxSize };
+        },
+        aspectRatio: window.innerWidth / window.innerHeight
+      };
+
+      html5QrScanner.start(
+        { facingMode: currentFacingMode },
+        config,
+        onScanSuccess,
+        () => {} // Frame failure ignored
+      ).then(() => {
+        statusEl.textContent = 'เล็งกล้องไปที่ QR Code ของ UPS';
+        checkTorchCapability();
+      }).catch(err => {
+        console.error('Camera start error:', err);
+        statusEl.textContent = 'ไม่สามารถเข้าถึงกล้องได้ กรุณาอนุญาตสิทธิ์ใน Safari/Chrome';
+        Swal.fire({
+          icon: 'error',
+          title: 'ไม่สามารถเปิดกล้องได้',
+          text: 'กรุณากดอนุญาตการเข้าถึงกล้องในเบราว์เซอร์ของคุณ',
+          confirmButtonText: 'ลองใหม่อีกครั้ง'
+        }).then(() => {
+          location.reload();
+        });
+      });
+    }
+
+    function checkTorchCapability() {
+      try {
+        const capabilities = html5QrScanner.getRunningTrackCapabilities();
+        if (capabilities && capabilities.torch) {
+          document.getElementById('btnTorch').classList.remove('hidden');
+        }
+      } catch (_) {}
+    }
+
+    function toggleTorch() {
+      try {
+        isTorchOn = !isTorchOn;
+        html5QrScanner.applyVideoConstraints({
+          advanced: [{ torch: isTorchOn }]
+        });
+        const btn = document.getElementById('btnTorch');
+        if (isTorchOn) {
+          btn.classList.add('bg-amber-500', 'text-black');
+          btn.classList.remove('bg-white/10', 'text-white');
+        } else {
+          btn.classList.remove('bg-amber-500', 'text-black');
+          btn.classList.add('bg-white/10', 'text-white');
+        }
+      } catch (_) {}
+    }
+
+    function switchCamera() {
+      currentFacingMode = (currentFacingMode === "environment") ? "user" : "environment";
+      startCamera();
+    }
+
+    function extractTagId(qrText) {
+      if (!qrText) return '';
+      qrText = String(qrText).trim();
+
+      // Check query params
+      if (qrText.includes('?') || qrText.includes('&') || qrText.includes('=')) {
+        try {
+          const qIndex = qrText.indexOf('?');
+          const qs = qIndex !== -1 ? qrText.substring(qIndex + 1) : qrText;
+          const params = new URLSearchParams(qs);
+          const keys = ['tagid', 'tagId', 'tagID', 'TagId', 'TAGID', 'id', 'ID', 'Id', 'tag', 'item'];
+          for (const k of keys) {
+            if (params.has(k)) {
+              const val = params.get(k);
+              if (val && val.trim()) return val.trim();
+            }
+          }
+        } catch (_) {}
+
+        const match = qrText.match(/(?:tagid|id|tag)=([^&#\s]+)/i);
+        if (match && match[1]) {
+          try { return decodeURIComponent(match[1]).trim(); } catch (_) { return match[1].trim(); }
+        }
+      }
+
+      return qrText;
+    }
+
+    function onScanSuccess(decodedText) {
+      if (hasDecoded) return;
+      hasDecoded = true;
+
+      // Haptic vibrate
+      if (navigator.vibrate) {
+        try { navigator.vibrate([100, 50, 100]); } catch (_) {}
+      }
+      playBeepSound();
+
+      const tagId = extractTagId(decodedText);
+      document.getElementById('scanStatus').textContent = `สแกนสำเร็จ: ${tagId}`;
+
+      // Stop camera
+      try { html5QrScanner.stop(); } catch (_) {}
+
+      // If opened in popup by window.open
+      if (window.opener && !window.opener.closed) {
+        try {
+          window.opener.postMessage({ type: 'UPS_QR_RESULT', tagId: tagId }, '*');
+          window.close();
+          return;
+        } catch (_) {}
+      }
+
+      // If returnUrl is present, redirect back to UPS System
+      if (returnUrl) {
+        const joiner = returnUrl.includes('?') ? '&' : '?';
+        const finalUrl = returnUrl + joiner + 'tagId=' + encodeURIComponent(tagId);
+        window.location.replace(finalUrl);
+      } else {
+        // Fallback: alert tagId
+        Swal.fire({
+          icon: 'success',
+          title: 'สแกนสำเร็จ',
+          text: `รหัส Tag ID: ${tagId}`,
+          confirmButtonText: 'ตกลง'
+        });
+      }
+    }
+
+    function cancelAndReturn() {
+      try {
+        if (html5QrScanner) html5QrScanner.stop();
+      } catch (_) {}
+
+      if (window.opener && !window.opener.closed) {
+        window.close();
+      } else if (returnUrl) {
+        window.location.replace(returnUrl);
+      } else {
+        window.history.back();
+      }
+    }
+  </script>
+</body>
+</html>
