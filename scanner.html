@@ -30,14 +30,6 @@
       overflow: hidden;
       touch-action: none;
     }
-    #interactive-video {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
-      object-fit: cover;
-    }
     #qrReader {
       position: absolute;
       top: 0;
@@ -112,7 +104,7 @@
       <span id="scanStatus" class="text-xs font-semibold text-white">เล็งกล้องไปที่ QR Code ของ UPS</span>
     </div>
     <p class="text-[11px] text-slate-400 max-w-xs leading-relaxed">
-      ระบบกล้องสดไม่มี iframe บล็อก อ่าน QR ทันทีและส่งผลกลับระบบ UPS
+      ระบบกล้องสดไม่มี iframe บล็อก สแกน QR แล้วนำส่งผลกลับเข้าระบบ UPS ทันที
     </p>
   </footer>
 
@@ -186,8 +178,8 @@
         Swal.fire({
           icon: 'error',
           title: 'ไม่สามารถเปิดกล้องได้',
-          text: 'กรุณากดอนุญาตการเข้าถึงกล้องในเบราว์เซอร์ของคุณ',
-          confirmButtonText: 'ลองใหม่อีกครั้ง'
+          text: 'กรุณากดอนุญาตการเข้าถึงกล้องของคุณ',
+          confirmButtonText: 'ลองอีกครั้ง'
         }).then(() => {
           location.reload();
         });
@@ -264,12 +256,15 @@
       playBeepSound();
 
       const tagId = extractTagId(decodedText);
-      document.getElementById('scanStatus').textContent = `สแกนสำเร็จ: ${tagId}`;
+      const statusEl = document.getElementById('scanStatus');
+      if (statusEl) {
+        statusEl.textContent = `สแกนสำเร็จ: ${tagId} (กำลังกลับหน้าระบบ...)`;
+      }
 
       // Stop camera
       try { html5QrScanner.stop(); } catch (_) {}
 
-      // If opened in popup by window.open
+      // 1. If opened in popup by window.open, send message and close
       if (window.opener && !window.opener.closed) {
         try {
           window.opener.postMessage({ type: 'UPS_QR_RESULT', tagId: tagId }, '*');
@@ -278,20 +273,23 @@
         } catch (_) {}
       }
 
-      // If returnUrl is present, redirect back to UPS System
-      if (returnUrl) {
-        const joiner = returnUrl.includes('?') ? '&' : '?';
-        const finalUrl = returnUrl + joiner + 'tagId=' + encodeURIComponent(tagId);
-        window.location.replace(finalUrl);
-      } else {
-        // Fallback: alert tagId
-        Swal.fire({
-          icon: 'success',
-          title: 'สแกนสำเร็จ',
-          text: `รหัส Tag ID: ${tagId}`,
-          confirmButtonText: 'ตกลง'
-        });
+      // 2. If the scanned QR text itself is a Web App URL (script.google.com/.../exec?tagid=...)
+      if (decodedText.startsWith('http://') || decodedText.startsWith('https://')) {
+        let destUrl = decodedText;
+        if (!destUrl.toLowerCase().includes('tagid=') && !destUrl.toLowerCase().includes('id=')) {
+          destUrl += (destUrl.includes('?') ? '&' : '?') + 'tagId=' + encodeURIComponent(tagId);
+        }
+        window.location.href = destUrl;
+        return;
       }
+
+      // 3. If returnUrl was passed or cached or fallback to known deployment
+      const defaultUpsUrl = 'https://script.google.com/macros/s/AKfycbxX5k5ZuIwE13FhiTe6wC_XbEQ8o27Vs1ZsI0iZNeiKbx7fRyPVJURdmIyA86OsEMl0fQ/exec';
+      const effectiveReturnUrl = returnUrl || localStorage.getItem('ups_webapp_url') || defaultUpsUrl;
+
+      const joiner = effectiveReturnUrl.includes('?') ? '&' : '?';
+      const finalUrl = effectiveReturnUrl + joiner + 'tagId=' + encodeURIComponent(tagId);
+      window.location.href = finalUrl;
     }
 
     function cancelAndReturn() {
@@ -301,10 +299,10 @@
 
       if (window.opener && !window.opener.closed) {
         window.close();
-      } else if (returnUrl) {
-        window.location.replace(returnUrl);
       } else {
-        window.history.back();
+        const defaultUpsUrl = 'https://script.google.com/macros/s/AKfycbxX5k5ZuIwE13FhiTe6wC_XbEQ8o27Vs1ZsI0iZNeiKbx7fRyPVJURdmIyA86OsEMl0fQ/exec';
+        const effectiveReturnUrl = returnUrl || localStorage.getItem('ups_webapp_url') || defaultUpsUrl;
+        window.location.href = effectiveReturnUrl;
       }
     }
   </script>
